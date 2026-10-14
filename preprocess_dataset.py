@@ -7,7 +7,8 @@ import pandas as pd
 import numpy as np
 
 DATA_GLOB = "data/pusht_keypoints/data/chunk-*/file-*.parquet"
-DIV_ZERO_GUARD = 1e-06
+RNG_SEED = 137
+TRAIN_SPLIT = 0.8   # Between 0.0 to 1.0
 
 def load_dataframe(pattern: str = DATA_GLOB) -> pd.DataFrame:
     print(f"[load_dataframe] Reading parquet files matching {pattern}")
@@ -19,28 +20,26 @@ def load_dataframe(pattern: str = DATA_GLOB) -> pd.DataFrame:
           f"{df['episode_index'].nunique()} episodes")
     return df
 
-def get_episode(df: pd.DataFrame, episode_num: int):
-    """
-    Extracts the arrays from the dataframe and puts them into 
-    numpy matrices (easier to conceptualize and deal with). 
-    """
-    ep_mask = df["episode_index"] == episode_num
-    ep_df = df[ep_mask]
-
-    state = np.stack(ep_df["observation.state"].to_numpy())                 # (T, 2)
-    env_state = np.stack(ep_df["observation.environment_state"].to_numpy()) # (T, 16)
-    actions = np.stack(ep_df["action"].to_numpy())                          # (T, 2)
-    rewards = np.stack(ep_df["next.reward"].to_numpy())                     # (T)
-
-    return state, env_state, actions, rewards
-
 def main(): 
     df = load_dataframe()
 
-    state = np.stack(df["observation.state"].to_numpy())                 # (T, 2)
-    env_state = np.stack(df["observation.environment_state"].to_numpy()) # (T, 16)
-    actions = np.stack(df["action"].to_numpy())                          # (T, 2)
-    rewards = np.stack(df["next.reward"].to_numpy())                     # (T)
+    # Split training and validation
+    episode_idxs = sorted(df["episode_index"].unique().tolist())
+    rng = np.random.default_rng(RNG_SEED)
+    rng.shuffle(episode_idxs)
+
+    train_val_split_idx = round(len(episode_idxs) * TRAIN_SPLIT)
+    train_data_episode_idxs = episode_idxs[:train_val_split_idx]
+    val_data_episode_idxs = episode_idxs[train_val_split_idx:]
+
+    # Compute the mean and std for training data (important for normalization)
+    train_eps_mask = df["episode_index"].isin(train_data_episode_idxs)
+    train_eps_df = df[train_eps_mask]
+
+    state = np.stack(train_eps_df["observation.state"].to_numpy())                 # (T, 2)
+    env_state = np.stack(train_eps_df["observation.environment_state"].to_numpy()) # (T, 16)
+    actions = np.stack(train_eps_df["action"].to_numpy())                          # (T, 2)
+    rewards = np.stack(train_eps_df["next.reward"].to_numpy())                     # (T)
 
     state_mean, state_std = np.mean(state, axis=0), np.std(state, axis=0)
     env_state_mean, env_state_std = np.mean(env_state, axis=0), np.std(env_state, axis=0)
@@ -48,6 +47,10 @@ def main():
     rewards_mean, rewards_std = np.mean(rewards, axis=0), np.std(rewards, axis=0)
 
     json_data = {
+        "dataset_split" : {
+            "train": train_data_episode_idxs,
+            "val": val_data_episode_idxs,
+        },
         "state" : {
             "mean": state_mean.tolist(),
             "std": state_std.tolist(),
@@ -66,7 +69,7 @@ def main():
                 },
     }
 
-    output_json_filepath = "data/normalized_data.json"
+    output_json_filepath = "config/normalized_data.json"
     with open(output_json_filepath, "w") as f:
         json.dump(json_data, f, indent=4)
 
