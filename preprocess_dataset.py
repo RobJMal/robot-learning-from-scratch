@@ -6,22 +6,16 @@ import json
 import pandas as pd
 import numpy as np
 
+# Custom
+from utils import load_dataframe
+
 DATA_GLOB = "data/pusht_keypoints/data/chunk-*/file-*.parquet"
 RNG_SEED = 137
 TRAIN_SPLIT = 0.8   # Between 0.0 to 1.0
 
-def load_dataframe(pattern: str = DATA_GLOB) -> pd.DataFrame:
-    print(f"[load_dataframe] Reading parquet files matching {pattern}")
-    files = sorted(glob.glob(pattern))
-    if not files:
-        raise FileNotFoundError(f"No parquet files match {pattern}")
-    df = pd.read_parquet(files[0])
-    print(f"[load_dataframe] Loaded {files[0]}: {df.shape[0]} rows, "
-          f"{df['episode_index'].nunique()} episodes")
-    return df
 
 def main(): 
-    df = load_dataframe()
+    df = load_dataframe(DATA_GLOB)
 
     # Split training and validation
     episode_idxs = sorted(df["episode_index"].unique().tolist())
